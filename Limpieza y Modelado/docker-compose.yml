@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  notebook:
+    build: .
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      - ./work:/home/jovyan/work
+      - ./Data:/home/jovyan/work/Data
+    environment:
+      - JUPYTER_TOKEN=
+      - JUPYTER_LAB_PASSWORD=
+    command: start-notebook.py --NotebookApp.token='' --NotebookApp.password=''
