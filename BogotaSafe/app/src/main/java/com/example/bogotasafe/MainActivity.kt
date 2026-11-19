@@ -331,6 +331,8 @@ fun VistaSimuladorEstadoPosible(
     var edadSimuladaStr by remember { mutableStateOf("") }
     var latSeleccionadaMapa by remember { mutableStateOf<Double?>(null) }
     var lonSeleccionadaMapa by remember { mutableStateOf<Double?>(null) }
+    var latInputStr by remember { mutableStateOf("") }
+    var lonInputStr by remember { mutableStateOf("") }
 
     // Para el tiempo del estado posible: carga inicialmente el reloj real mediante función, pero permite cambiarlo
     val tiempoInicial = remember { engine.obtenerTiempoActualDelSistema() }
@@ -347,7 +349,7 @@ fun VistaSimuladorEstadoPosible(
             shape = RoundedCornerShape(14.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("1. Toca el mapa para elegir la ubicación a evaluar", color = Color(0xFF80CBC4), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("1. Elige la ubicación (toca el mapa o escribe las coordenadas)", color = Color(0xFF80CBC4), fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
                 InteractiveMapPicker(
                     selectedLat = latSeleccionadaMapa,
@@ -357,11 +359,40 @@ fun VistaSimuladorEstadoPosible(
                     onPointSelected = { lat, lon ->
                         latSeleccionadaMapa = lat
                         lonSeleccionadaMapa = lon
+                        latInputStr = lat.toString()
+                        lonInputStr = lon.toString()
                     }
                 )
 
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = latInputStr,
+                        onValueChange = { input: String -> 
+                            latInputStr = input
+                            input.toDoubleOrNull()?.let { validLat ->
+                                latSeleccionadaMapa = validLat
+                            }
+                        },
+                        label = { Text("Latitud") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = lonInputStr,
+                        onValueChange = { input: String -> 
+                            lonInputStr = input
+                            input.toDoubleOrNull()?.let { validLon ->
+                                lonSeleccionadaMapa = validLon
+                            }
+                        },
+                        label = { Text("Longitud") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
                 Text(
-                    text = if (latSeleccionadaMapa != null)
+                    text = if (latSeleccionadaMapa != null && lonSeleccionadaMapa != null)
                         "📌 Punto marcado: Lat ${"%.5f".format(latSeleccionadaMapa)}, Lon ${"%.5f".format(lonSeleccionadaMapa)}"
                     else "⚠️ Aún no has tocado ningún punto en el mapa.",
                     fontSize = 12.sp,

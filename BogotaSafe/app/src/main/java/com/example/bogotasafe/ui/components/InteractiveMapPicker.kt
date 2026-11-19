@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
@@ -30,9 +30,27 @@ fun InteractiveMapPicker(
             .height(280.dp)
             .clip(RoundedCornerShape(12.dp)),
         factory = { context ->
-            Configuration.getInstance().userAgentValue = context.packageName
+            // Cargar configuración de osmdroid
+            Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", android.content.Context.MODE_PRIVATE))
+            // OpenStreetMap bloquea los User-Agent genéricos (como los que empiezan por com.example).
+            // Se debe colocar uno personalizado.
+            Configuration.getInstance().userAgentValue = "BogotaSafe/1.0"
+            
             MapView(context).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
+                // Usar MapTiler con API Key extraída de local.properties a través de BuildConfig
+                val mapTilerKey = com.example.bogotasafe.BuildConfig.MAPTILER_API_KEY
+                
+                val mapTilerSource = object : XYTileSource(
+                    "MapTiler",
+                    0, 20, 256, ".png",
+                    arrayOf("https://api.maptiler.com/maps/streets-v2/256/")
+                ) {
+                    override fun getTileURLString(pMapTileIndex: Long): String {
+                        return super.getTileURLString(pMapTileIndex) + "?key=$mapTilerKey"
+                    }
+                }
+                
+                setTileSource(mapTilerSource)
                 setMultiTouchControls(true)
                 controller.setZoom(13.5)
 
