@@ -7,7 +7,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-purple?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-green?logo=android&logoColor=white)](https://www.android.com/)
+[![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B-green?logo=android&logoColor=white)](https://www.android.com/)
 [![Containers](https://img.shields.io/badge/Containers-Podman%20%7C%20Docker-orange?logo=podman&logoColor=white)](https://podman.io/)
 
 </div>
@@ -142,6 +142,6 @@ docker compose up --build
 
 Para demostraciones o uso en campo no se requiere compilar desde Android Studio:
 
-1. Descargar o transferir el archivo `BogotaSafe.apk` al dispositivo móvil con Android 8.0 o superior.
+1. Descargar o transferir el archivo `BogotaSafe.apk` al dispositivo móvil con Android 7.0 (API 24) o superior.
 2. Habilitar la opción de instalación de aplicaciones de fuentes desconocidas si el sistema lo requiere.
 3. Abrir la app, otorgar los permisos de ubicación solicitados y configurar el perfil demográfico inicial.
