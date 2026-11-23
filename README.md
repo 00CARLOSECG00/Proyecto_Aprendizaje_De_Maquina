@@ -18,7 +18,6 @@
 
 - [Descripción General](#-descripción-general)
 - [Fuentes de Datos Oficiales](#-fuentes-de-datos-oficiales)
-- [Arquitectura del Sistema](#-arquitectura-del-sistema)
 - [Modelos y Fundamentación Matemática](#-modelos-y-fundamentación-matemática)
   - [1. Dimensión Espacial ($K$-Means, $k=7$)](#1-dimensión-espacial-k-means-k7)
   - [2. Dimensión Temporal (GLM de Poisson)](#2-dimensión-temporal-glm-de-poisson)
@@ -35,7 +34,7 @@
 
 **BogotáSafe** es una solución de ingeniería orientada a la seguridad ciudadana que traslada modelos de machine learning entrenados sobre microdatos delictivos distritales a un entorno móvil totalmente desconectado. 
 
-A diferencia de los enfoques convencionales que consultan APIs en la nube, el sistema destila el conocimiento de más de 1,100 sectores catastrales urbanos, patrones temporales multianuales y probabilidades demográficas en un único artefacto ligero (`modelo_seguridad_bogota.json`, ≈ 150 KB). permitiendo calcular probabilidades e índices de riesgo en tiempo real directamente en un dispositivo móvil Android sin requerir conexión a internet ni servidores externos.
+A diferencia de los enfoques convencionales que consultan APIs en la nube, el sistema destila el conocimiento de 1,049 sectores catastrales urbanos, patrones temporales multianuales y probabilidades demográficas en un único artefacto ligero (`modelo_seguridad_bogota.json`, ≈ 210 KB), permitiendo calcular probabilidades e índices de riesgo en tiempo real directamente en un dispositivo móvil Android sin requerir conexión a internet ni servidores externos.
 
 ---
 
@@ -57,10 +56,10 @@ El proyecto se sustenta exclusivamente en registros abiertos de entidades oficia
 
 ### 1. Dimensión Espacial ($K$-Means, $k=7$)
 * **Criterio de agrupación:** Agrupamiento basado en **perfil y densidad delictiva** por $\text{km}^2$ (hurtos, lesiones y homicidios de la ventana 2023–2025) sobre la capa catastral urbana reproyectada (EPSG:3116). No agrupa por simple contigüidad geográfica, identificando tipologías delictivas análogas a lo largo de la ciudad.
-* **Selección de $k=7$:**
-  * **Davies-Bouldin Index:** $1.0024$ (mínima dispersión intra-clúster).
-  * Validado mediante el método del codo (*Elbow Method*) y puntuaciones de Silhouette y Calinski-Harabasz.
-* **Puntaje base:** Asignación escalonada según severidad media de delitos por clúster (valores base entre $15.0$ y $92.0$).
+- **Selección de modelo y $k=7$:**
+  - Comparado contra `AgglomerativeClustering` (Ward), `GaussianMixture` (GMM) y `DBSCAN`. Se eligió **K-Means (`k-means++`)** porque clasifica el 100 % de los sectores sin descartar zonas críticas como ruido (`-1`), a diferencia de DBSCAN.
+  - **Métricas en $k=7$:** Davies-Bouldin = `0.9891` (mínimo global), Silhouette = `0.3244` y Calinski-Harabasz = `454.0` (validado junto con el método del codo).
+- **Puntaje base:** Asignación escalonada según severidad media de delitos por clúster (valores base entre $15.0$ y $92.0$).
 
 ### 2. Dimensión Temporal (GLM de Poisson)
 * **Formulación:** Modela el conteo de incidentes en vía pública mediante una Regresión Lineal Generalizada (GLM) con distribución de Poisson y enlace logarítmico:
@@ -69,8 +68,10 @@ $$
 \log(\lambda) = \beta_0 + \sum \beta_{\text{mes}} X_{\text{mes}} + \sum \beta_{\text{dia}} X_{\text{dia}} + \sum \beta_{\text{hora}} X_{\text{hora}}
 $$
 
-* **Desempeño:**
-  * **$D^2$ Score (Pseudo-R² de Poisson):** $0.7087$.
+- **Exploración de hiperparámetros y selección (`GridSearchCV` 5-Fold):**
+  - Comparado contra `Tweedie` (`D² = 0.7845`), `Ridge` (`D² = 0.7420`), `HistGradientBoosting` (`D² = 0.8052`) y `Random Forest` (`D² = 0.8439`).
+  - **Desempeño GLM Poisson ($\alpha = 0.05$):** `D² Test = 0.7830` | `Desvianza = 3.0540` | `R² = 0.8017` | `MAE = 11.19`.
+  - **Justificación:** Se eligió sobre Random Forest porque se comprime en **43 factores** en JSON (vs. 100 árboles), evita sobreajuste y permite desglosar `Mes × Día × Hora` en la app.
 
 ### 3. Dimensión Demográfica (Naive Bayes)
 * **Auditoría y selección formal de variables:**
@@ -78,9 +79,11 @@ $$
   * *Varianza y Entropía:* Descarte de variables con concentración superior al $85\,\%$ en una categoría.
   * *Incompletitud:* La localidad original en Medicina Legal presentaba $82.16\,\%$ de valores nulos, sustentando el cruce geográfico con la base distrital.
   * *Variables retenidas:* `Sexo de la víctima` y `Ciclo Vital` (completitud superior al $99.9\,\%$).
-* **Validación inferencial:**
-  * Prueba $\chi^2$ de bondad de ajuste contra censo DANE ($48\,\%$ hombres / $52\,\%$ mujeres, $p < 0.0001$).
-  * Cálculo de multiplicadores mediante razones de verosimilitud (*Likelihood Ratios*).
+* **Validación, exploración de hiperparámetros y selección (`GridSearchCV` 5-Fold):**
+  * Prueba $\chi^2$ contra censo DANE ($48\,\%$ hombres / $52\,\%$ mujeres, $p < 0.0001$) e **Información Mutua**.
+  * Comparado contra `Regresión Logística`, `Árbol de Decisión` y `Random Forest` (split 80/20). Todos empataron en el mismo límite predictivo (`ROC-AUC ≈ 0.633`), eligiendo **Categorical Naive Bayes ($\alpha = 0.01$)** por requerir solo **8 parámetros** en JSON (vs. 100 árboles).
+  * **Métricas en Test:** `ROC-AUC = 0.6334` | `Brier Score = 0.1036` | `Log-Loss = 0.3566` | `F1-Score = 0.9354`.
+  * Cálculo de multiplicadores mediante razones de verosimilitud (*Likelihood Ratios*) con suavizado de Laplace.
 
 ### 4. Ensamble del Score Final
 Dada una coordenada geográfica, el motor ubica el sector catastral más próximo evaluando la distancia geodésica de Haversine:
@@ -112,7 +115,7 @@ La aplicación Android no utiliza coordenadas simuladas ni valores predeterminad
    - **Inferencia en Tiempo Real:** Obtiene la coordenada satelital activa, lee la hora y fecha del sistema y genera el diagnóstico del sector catastral donde se encuentra el usuario.
 
 2. **Modo 2: Evaluar Estado Posible (Simulador Cartográfico)**
-   - **Cartografía Interactiva (OSMDroid):** Permite explorar el mapa urbano de Bogotá y tocar cualquier punto geográfico para situar un marcador dinámico.
+   - **Cartografía Interactiva (OSMDroid + MapTiler):** Permite explorar el mapa urbano de Bogotá y tocar cualquier punto geográfico para situar un marcador dinámico.
    - **Simulación Paramétrica:** Permite definir cualquier combinación de sexo, edad, día de la semana o franja horaria para evaluar el riesgo de trayectos o destinos antes de desplazarse.
 
 ---
@@ -132,7 +135,7 @@ docker compose up --build
 ```
 
 1. Acceder al entorno de Jupyter Lab en: `http://127.0.0.1:8888`
-2. Abrir y ejecutar las celdas de `Pipeline_KMeans_Poisson_Bayes_Bogota.ipynb`.
+2. Abrir y ejecutar las celdas de `Pipeline_KMeans_Poisson_Bayes_Bogota_v2.ipynb`.
 3. El proceso exportará automáticamente el archivo unificado `modelo_seguridad_bogota.json`.
 
 ### Fase 2: Aplicación Móvil (Instalación por APK)
