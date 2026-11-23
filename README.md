@@ -2,7 +2,8 @@
 
 # 🛡️ BogotáSafe — Motor de Inferencia Offline de Riesgo Urbano Proyecto_Aprendizaje_De_Máquina
 
-**Analítica predictiva y prevención ciudadana para Bogotá D.C. bajo arquitectura offline-first.**
+**Autores: Carlos Caicedo y Salomon Avila**
+
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-purple?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
