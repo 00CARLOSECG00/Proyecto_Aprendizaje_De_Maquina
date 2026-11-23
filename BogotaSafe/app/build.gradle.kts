@@ -33,9 +33,11 @@ android {
 
     buildTypes {
         release {
+            // Firma con la llave de depuración para poder instalar la versión optimizada en el
+            // celular de pruebas. Para publicar en Play Store se debe usar una llave propia.
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
     }
@@ -52,7 +54,11 @@ android {
 dependencies {
     // 1. Librerías añadidas para GPS en tiempo real y Mapa Interactivo
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    // Play Services trae una versión vieja de Fragment; se fuerza una actual (permisos en tiempo de ejecución)
+    implementation("androidx.fragment:fragment:1.9.1")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
+    // Efecto Liquid Glass (refracción y desenfoque real)
+    implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
 
     // 2. Dependencias base de Android y Jetpack Compose (Sin duplicados)
     implementation(libs.androidx.core.ktx)

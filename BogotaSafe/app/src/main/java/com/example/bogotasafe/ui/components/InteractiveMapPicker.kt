@@ -22,13 +22,13 @@ fun InteractiveMapPicker(
     selectedLon: Double?,
     initialCenterLat: Double?,
     initialCenterLon: Double?,
-    onPointSelected: (Double, Double) -> Unit
+    onPointSelected: (Double, Double) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth().height(280.dp)
 ) {
     AndroidView(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(280.dp)
-            .clip(RoundedCornerShape(12.dp)),
+        modifier = modifier.clip(RoundedCornerShape(20.dp)),
+        // Libera el mapa (hilos de descarga de teselas y caché) cuando sale de la pantalla
+        onRelease = { mapView -> mapView.onDetach() },
         factory = { context ->
             // Cargar configuración de osmdroid
             Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", android.content.Context.MODE_PRIVATE))

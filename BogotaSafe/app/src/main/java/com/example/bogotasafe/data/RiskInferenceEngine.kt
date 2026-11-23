@@ -28,18 +28,111 @@ data class RiskResult(
     val hurtosHistoricos: Int,
     val homicidiosHistoricos: Int,
     val lesionesHistoricas: Int,
-    val recomendacion: String
+    val recomendacion: String,
+    // Factores individuales (para la explicación en lenguaje humano)
+    val factorMes: Double = 1.0,
+    val factorDia: Double = 1.0,
+    val factorHora: Double = 1.0,
+    val factorSexo: Double = 1.0,
+    val factorEdad: Double = 1.0,
+    val cicloVital: String = "",
+    // Entradas usadas (para la sección técnica)
+    val latitud: Double = 0.0,
+    val longitud: Double = 0.0,
+    val mes: Int = 0,
+    val diaSemana: String = "",
+    val hora: Int = 0,
+    val sexo: String = "",
+    val edad: Int = 0
+)
+
+/** Sector catastral precargado en memoria (evita recorrer el JSON en cada cálculo). */
+private class Sector(
+    val lat: Double,
+    val lon: Double,
+    val latRad: Double,
+    val cosLat: Double,
+    val scoreBase: Double,
+    val nombre: String,
+    val id: String,
+    val clusterId: Int,
+    val hurtos: Int,
+    val homicidios: Int,
+    val lesiones: Int
 )
 class RiskInferenceEngine(context: Context) {
 
-    private val jsonObject: JSONObject
+    private val sectores: Array<Sector>
+    private val factorMes: Map<String, Double>
+    private val factorDia: Map<String, Double>
+    private val factorHora: Map<String, Double>
+    private val multSexo: Map<String, Double>
+    private val multCicloVital: Map<String, Double>
 
     init {
-        // Carga el archivo JSON desde res/raw de forma local y 100% offline
+        // Carga el archivo JSON desde res/raw de forma local y 100% offline.
+        // Se parsea UNA sola vez y se guarda en arreglos y mapas para que cada cálculo sea barato.
         val inputStream = context.resources.openRawResource(R.raw.modelo_seguridad_bogota)
         val jsonString = inputStream.bufferedReader().use { it.readText() }
-        jsonObject = JSONObject(jsonString)
+        val json = JSONObject(jsonString)
+
+        val arr = json.getJSONArray("sectores_urbanos")
+        sectores = Array(arr.length()) { i ->
+            val s = arr.getJSONObject(i)
+            val lat = s.getDouble("lat")
+            val m = s.getJSONObject("metricas_historicas")
+            Sector(
+                lat = lat,
+                lon = s.getDouble("lon"),
+                latRad = Math.toRadians(lat),
+                cosLat = cos(Math.toRadians(lat)),
+                scoreBase = s.getDouble("score_base"),
+                nombre = s.getString("nombre_barrio"),
+                id = s.getString("id_sector"),
+                clusterId = s.getInt("cluster_id"),
+                hurtos = m.getInt("hurtos"),
+                homicidios = m.getInt("homicidios"),
+                lesiones = m.getInt("lesiones")
+            )
+        }
+        val temp = json.getJSONObject("modelo_temporal")
+        factorMes = aMapa(temp.getJSONObject("factor_mes"))
+        factorDia = aMapa(temp.getJSONObject("factor_dia"))
+        factorHora = aMapa(temp.getJSONObject("factor_hora"))
+        val demo = json.getJSONObject("modelo_demografico")
+        multSexo = aMapa(demo.getJSONObject("multiplicador_sexo"))
+        multCicloVital = aMapa(demo.getJSONObject("multiplicador_ciclo_vital"))
     }
+
+    private fun aMapa(o: JSONObject): Map<String, Double> =
+        o.keys().asSequence().associateWith { o.getDouble(it) }
+
+    /** Sector más cercano a una coordenada (distancia de Haversine). */
+    private fun buscarSector(latitud: Double, longitud: Double): Pair<Sector, Double> {
+        val latRad = Math.toRadians(latitud)
+        val cosLat = cos(latRad)
+        var mejor = sectores[0]
+        var mejorA = Double.MAX_VALUE
+        // Se compara el término "a" de Haversine (monótono con la distancia) y solo
+        // al final se calcula la distancia real, evitando asin/sqrt en cada sector.
+        for (s in sectores) {
+            val dLat = s.latRad - latRad
+            val dLon = Math.toRadians(s.lon - longitud)
+            val sLat = sin(dLat / 2)
+            val sLon = sin(dLon / 2)
+            val a = sLat * sLat + cosLat * s.cosLat * sLon * sLon
+            if (a < mejorA) {
+                mejorA = a
+                mejor = s
+            }
+        }
+        val distKm = 6371.0 * 2 * asin(sqrt(mejorA))
+        return mejor to distKm
+    }
+
+    /** Nombre del sector catastral más cercano (para mostrarlo al marcar un punto en el mapa). */
+    fun nombreSectorCercano(latitud: Double, longitud: Double): String =
+        buscarSector(latitud, longitud).first.nombre
 
     fun obtenerTiempoActualDelSistema(): SystemTimeData {
         val calendar = Calendar.getInstance()
@@ -57,15 +150,6 @@ class RiskInferenceEngine(context: Context) {
         }
         return SystemTimeData(mes = mes, diaSemana = diaSemana, hora = hora)
     }
-    private fun calcularDistanciaHaversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val radioTierraKm = 6371.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = sin(dLat / 2).pow(2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
-        return radioTierraKm * 2 * asin(sqrt(a))
-    }
-
     fun mapearEdadACicloVital(edad: Int): String {
         return when {
             edad <= 5 -> "(00 a 05) Primera Infancia"
@@ -86,43 +170,19 @@ class RiskInferenceEngine(context: Context) {
         diaSemana: String,
         hora: Int
     ): RiskResult {
-        val sectores = jsonObject.getJSONArray("sectores_urbanos")
-
-        var sectorMasCercano: JSONObject? = null
-        var distanciaMinimaKm = Double.MAX_VALUE
-
-        for (i in 0 until sectores.length()) {
-            val s = sectores.getJSONObject(i)
-            val dist = calcularDistanciaHaversineKm(
-                latitud, longitud,
-                s.getDouble("lat"), s.getDouble("lon")
-            )
-            if (dist < distanciaMinimaKm) {
-                distanciaMinimaKm = dist
-                sectorMasCercano = s
-            }
-        }
-
-        val sector = requireNotNull(sectorMasCercano) { "El JSON no contiene sectores válidos." }
-
-        val scoreBase = sector.getDouble("score_base")
-        val nombreBarrio = sector.getString("nombre_barrio")
-        val idSector = sector.getString("id_sector")
-        val clusterId = sector.getInt("cluster_id")
-        val metricas = sector.getJSONObject("metricas_historicas")
+        val (sector, distanciaMinimaKm) = buscarSector(latitud, longitud)
+        val scoreBase = sector.scoreBase
 
         // 1. Inferencia Temporal (Regresión de Poisson)
-        val modeloTemp = jsonObject.getJSONObject("modelo_temporal")
-        val fMes = modeloTemp.getJSONObject("factor_mes").getDouble(mes.toString())
-        val fDia = modeloTemp.getJSONObject("factor_dia").getDouble(diaSemana)
-        val fHora = modeloTemp.getJSONObject("factor_hora").getDouble(hora.toString())
+        val fMes = factorMes.getValue(mes.toString())
+        val fDia = factorDia.getValue(diaSemana)
+        val fHora = factorHora.getValue(hora.toString())
         val multTemporal = fMes * fDia * fHora
 
         // 2. Inferencia Demográfica (Naive Bayes)
-        val modeloDemo = jsonObject.getJSONObject("modelo_demografico")
         val cicloVital = mapearEdadACicloVital(edad)
-        val fSexo = modeloDemo.getJSONObject("multiplicador_sexo").getDouble(sexo)
-        val fEdad = modeloDemo.getJSONObject("multiplicador_ciclo_vital").getDouble(cicloVital)
+        val fSexo = multSexo.getValue(sexo)
+        val fEdad = multCicloVital.getValue(cicloVital)
         val multDemografico = (0.55 * fSexo) + (0.45 * fEdad)
 
         // 3. Ensamble del Score Final
@@ -132,17 +192,17 @@ class RiskInferenceEngine(context: Context) {
         val (nivel, colorHex, recomendacion) = when {
             scoreFinal >= 70.0 -> Triple(
                 "RIESGO ALTO / CRÍTICO",
-                0xFFD32F2F,
+                0xFFEF4444,
                 "Alerta máxima: Sector con alta densidad delictiva exacerbada por la franja temporal. Evite transitar a pie o exponer objetos de valor."
             )
             scoreFinal >= 45.0 -> Triple(
                 "RIESGO MODERADO",
-                0xFFF57C00,
+                0xFFF59E0B,
                 "Precaución activa: Manténgase sobre vías principales iluminadas y evite paraderos solitarios."
             )
             else -> Triple(
                 "RIESGO BAJO",
-                0xFF388E3C,
+                0xFF22C55E,
                 "Condiciones favorables: El sector catastral y el horario presentan baja incidencia histórica."
             )
         }
@@ -151,19 +211,32 @@ class RiskInferenceEngine(context: Context) {
             scoreFinal = scoreFinal,
             nivelAlerta = nivel,
             colorHex = colorHex,
-            nombreBarrio = nombreBarrio,
-            codigoSector = idSector,
-            clusterId = clusterId,
+            nombreBarrio = sector.nombre,
+            codigoSector = sector.id,
+            clusterId = sector.clusterId,
             scoreBaseCluster = scoreBase,
             distanciaMetros = round(distanciaMinimaKm * 1000).toLong(),
             multTemporal = round(multTemporal * 1000.0) / 1000.0,
             multDemografico = round(multDemografico * 1000.0) / 1000.0,
             detalleTiempo = "Mes($mes)=$fMes × $diaSemana=$fDia × Hora(${hora}h)=$fHora",
             detallePerfil = "$sexo=$fSexo | $cicloVital=$fEdad",
-            hurtosHistoricos = metricas.getInt("hurtos"),
-            homicidiosHistoricos = metricas.getInt("homicidios"),
-            lesionesHistoricas = metricas.getInt("lesiones"),
-            recomendacion = recomendacion
+            hurtosHistoricos = sector.hurtos,
+            homicidiosHistoricos = sector.homicidios,
+            lesionesHistoricas = sector.lesiones,
+            recomendacion = recomendacion,
+            factorMes = fMes,
+            factorDia = fDia,
+            factorHora = fHora,
+            factorSexo = fSexo,
+            factorEdad = fEdad,
+            cicloVital = cicloVital,
+            latitud = latitud,
+            longitud = longitud,
+            mes = mes,
+            diaSemana = diaSemana,
+            hora = hora,
+            sexo = sexo,
+            edad = edad
         )
     }
 
